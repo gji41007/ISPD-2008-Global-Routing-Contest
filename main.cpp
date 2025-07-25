@@ -47,12 +47,14 @@ int OF(ISPDParser::Point a, ISPDParser::Point b, int minwidth, int minSpace,
 }
 double cost(ISPDParser::Point a, ISPDParser::Point b, int minwidth, int minSpace, 
            std::vector<std::vector<int>>& vertCap, std::vector<std::vector<int>>& horiCap,
-           std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr){
+           std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr, std::vector<std::vector<int>>& vertHist, std::vector<std::vector<int>>& horiHist){
 
     /* param */
-    double h1 = 1;
-    double h2 = 150;
-    double k = -0.3;
+    double h1 = 5;
+    double h2 = 50;
+    double k = 0.1;
+    double histWeight = 1;
+    double histCost;
 
     int x1 = a.x, y1 = a.y;
     int x2 = b.x, y2 = b.y;
@@ -61,31 +63,35 @@ double cost(ISPDParser::Point a, ISPDParser::Point b, int minwidth, int minSpace
     if(x1 + 1 == x2 && y1 == y2){
         d = horiCurr[x1][y1] + minwidth + minSpace;
         cap = horiCap[x1][y1];
+        histCost = histWeight * horiHist[x1][y1];
     }
     //go left
     else if(x1 == x2 + 1 && y1 == y2){
         d = horiCurr[x2][y2] + minwidth + minSpace;
         cap = horiCap[x2][y2];
+        histCost = histWeight * horiHist[x2][y2];
     }
     //go up
     else if(x1 == x2 && y1 + 1 == y2){
-        d = horiCurr[x1][y1] + minwidth + minSpace;
-        cap = horiCap[x1][y1];
+        d = vertCurr[x1][y1] + minwidth + minSpace;
+        cap = vertCap[x1][y1];
+        histCost = histWeight * vertHist[x1][y1];
     }
     //go down
     else if(x1 == x2 && y1 == y2 + 1){
-        d = horiCurr[x2][y2] + minwidth + minSpace;
-        cap = horiCap[x2][y2];
+        d = vertCurr[x2][y2] + minwidth + minSpace;
+        cap = vertCap[x2][y2];
+        histCost = histWeight * vertHist[x2][y2];
     }
     else{
         std::cerr<<"error in cost(): not adjecnt grid\n";
         exit(-1);
     }
 
-
+    // std::cout<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
     double exponent = -k * (d - cap); 
     double denominator = 1 + std::exp(exponent); 
-    return h1 + (h2 / denominator);
+    return h1 + (h2 / denominator) + histCost;
 
 }
 int currOF(ISPDParser::Point a, ISPDParser::Point b, 
@@ -137,7 +143,7 @@ void fill_cap(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path, i
             vertCurr[x2][y2] += (net->minimumWidth + minSpace);
         }
         else{
-            std::cerr<<"error in fill_cap: not adjecnt grid\n";
+            std::cerr<<"error in fill_cap: not adjecnt grid("<<x1<<","<<y1<<"->"<<x2<<","<<y2<<std::endl;
             exit(-1);
         }
     }
@@ -173,9 +179,9 @@ void remove_cap(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path,
     
 }
 std::vector<ISPDParser::Point> pattern_route(ISPDParser::TwoPin twopin, int minSpace, std::vector<std::vector<int>>& vertCap, std::vector<std::vector<int>>& horiCap,
-                                              std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr){
+                                              std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr, std::vector<std::vector<int>>& vertHist, std::vector<std::vector<int>>& horiHist){
     std::vector<ISPDParser::Point> shortest_path;
-    int minSumOF = INT32_MAX;
+    double minSumOF = INT32_MAX;
     if(twopin.HPWL() == 0){return shortest_path;}
     int x1 = twopin.from.x, y1 = twopin.from.y;
     int x2 = twopin.to.x, y2 = twopin.to.y;
@@ -210,23 +216,23 @@ std::vector<ISPDParser::Point> pattern_route(ISPDParser::TwoPin twopin, int minS
 
 
     /* upper L shape*/
-    int pattSumCost = 0;
+    double pattSumCost = 0;
     if(y1 < y2){
         for(int i = y1; i < y2; ++i){
             shortest_path.push_back(ISPDParser::Point(x1, i));
-            pattSumCost += OF(ISPDParser::Point(x1, i), ISPDParser::Point(x1, i+1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+            pattSumCost += cost(ISPDParser::Point(x1, i), ISPDParser::Point(x1, i+1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
         }
         shortest_path.push_back(ISPDParser::Point(x1, y2));
         if(x1 < x2){
             for(int i = x1 + 1; i <= x2; ++i){
                 shortest_path.push_back(ISPDParser::Point(i, y2));
-                pattSumCost += OF(ISPDParser::Point(i-1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i-1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         else{
             for(int i = x1 - 1; i >= x2; --i){
                 shortest_path.push_back(ISPDParser::Point(i, y2));
-                pattSumCost += OF(ISPDParser::Point(i+1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i+1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
@@ -234,19 +240,19 @@ std::vector<ISPDParser::Point> pattern_route(ISPDParser::TwoPin twopin, int minS
         if(x1 < x2){
             for(int i = x1; i <= x2 - 1; ++i){
                 shortest_path.push_back(ISPDParser::Point(i, y1));
-                pattSumCost += OF(ISPDParser::Point(i, y1), ISPDParser::Point(i+1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i, y1), ISPDParser::Point(i+1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         else{
             for(int i = x1; i >= x2 + 1; --i){
                 shortest_path.push_back(ISPDParser::Point(i, y1));
-                pattSumCost += OF(ISPDParser::Point(i, y1), ISPDParser::Point(i-1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i, y1), ISPDParser::Point(i-1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         shortest_path.push_back(ISPDParser::Point(x2, y1));
         for(int i = y1 - 1; i >= y2; --i){
             shortest_path.push_back(ISPDParser::Point(x2, i));
-            pattSumCost += OF(ISPDParser::Point(x2, i+1), ISPDParser::Point(x2, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+            pattSumCost += cost(ISPDParser::Point(x2, i+1), ISPDParser::Point(x2, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
         }
     }
     minSumOF = pattSumCost;
@@ -258,37 +264,37 @@ std::vector<ISPDParser::Point> pattern_route(ISPDParser::TwoPin twopin, int minS
         if(x1 < x2){
             for(int i = x1; i <= x2 - 1; ++i){
                 // shortest_path.push_back(ISPDParser::Point(i, y1));
-                pattSumCost += OF(ISPDParser::Point(i, y1), ISPDParser::Point(i+1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i, y1), ISPDParser::Point(i+1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         else{
             for(int i = x1; i >= x2 + 1; --i){
                 // shortest_path.push_back(ISPDParser::Point(i, y1));
-                pattSumCost += OF(ISPDParser::Point(i, y1), ISPDParser::Point(i-1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i, y1), ISPDParser::Point(i-1, y1), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         // shortest_path.push_back(ISPDParser::Point(x2, y1));
         for(int i = y1 + 1; i <= y2; ++i){
             // shortest_path.push_back(ISPDParser::Point(x2, i));
-            pattSumCost += OF(ISPDParser::Point(x2, i-1), ISPDParser::Point(x2, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+            pattSumCost += cost(ISPDParser::Point(x2, i-1), ISPDParser::Point(x2, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
         }
     }
     else{
         for(int i = y1; i > y2; --i){
             // shortest_path.push_back(ISPDParser::Point(x1, i));
-            pattSumCost += OF(ISPDParser::Point(x1, i-1), ISPDParser::Point(x1, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+            pattSumCost += cost(ISPDParser::Point(x1, i-1), ISPDParser::Point(x1, i), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
         }
         // shortest_path.push_back(ISPDParser::Point(x1, y2));
         if(x1 < x2){
             for(int i = x1 + 1; i <= x2; ++i){
                 // shortest_path.push_back(ISPDParser::Point(i, y2));
-                pattSumCost += OF(ISPDParser::Point(i-1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i-1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
         else{
             for(int i = x1 - 1; i >= x2; --i){
                 // shortest_path.push_back(ISPDParser::Point(i, y2));
-                pattSumCost += OF(ISPDParser::Point(i+1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                pattSumCost += cost(ISPDParser::Point(i+1, y2), ISPDParser::Point(i, y2), twopin.parNet->minimumWidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
@@ -330,27 +336,23 @@ std::vector<ISPDParser::Point> pattern_route(ISPDParser::TwoPin twopin, int minS
     }
     return shortest_path;
 }
-std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(int x1, int y1, int x2, int y2, ISPDParser::Point source, std::vector<std::vector<int>>& costMap, int minwidth, int minSpace, 
+// std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(int x1, int y1, int x2, int y2, ISPDParser::Point source, std::vector<std::vector<int>>& costMap, int minwidth, int minSpace, 
+//                            std::vector<std::vector<int>>& vertCap, std::vector<std::vector<int>>& horiCap, std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr,
+//                            std::vector<std::vector<ISPDParser::Point>>& pVert, std::vector<std::vector<ISPDParser::Point>>& pHori){
+void unilateral_mono_route(int x1, int y1, int x2, int y2, ISPDParser::Point source, std::vector<std::vector<double>>& costMap, int minwidth, int minSpace, 
                            std::vector<std::vector<int>>& vertCap, std::vector<std::vector<int>>& horiCap, std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr,
-                           std::vector<std::vector<ISPDParser::Point>>& pVert, std::vector<std::vector<ISPDParser::Point>>& pHori){
+                           std::vector<std::vector<ISPDParser::Point>>& pVert, std::vector<std::vector<ISPDParser::Point>>& pHori, std::vector<std::vector<double>>& costVert, std::vector<std::vector<double>>& costHori, std::vector<std::vector<int>>& vertHist, std::vector<std::vector<int>>& horiHist){    
     int s_x = source.x, s_y = source.y;
     /* vert mono route*/
-    std::vector<std::vector<int>> costVert(
-        costMap.size(),
-        std::vector<int>(costMap[0].size(), 0)
-    );
-    // std::vector<std::vector<ISPDParser::Point>> pVert(
-    //     costMap.size(),
-    //     std::vector<ISPDParser::Point>(costMap[0].size(), ISPDParser::Point(-1, -1))
-    // );
-    // std::cout<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
+
     pVert[s_x][s_y] = ISPDParser::Point(s_x, s_y);
+    costVert[s_x][s_y] = 0;
     for(int i = source.x - 1; i >= x1; --i){
-        costVert[i][s_y] = (costVert[i+1][s_y] + OF(ISPDParser::Point(i, s_y), ISPDParser::Point(i+1, s_y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));
+        costVert[i][s_y] = (costVert[i+1][s_y] + cost(ISPDParser::Point(i, s_y), ISPDParser::Point(i+1, s_y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));
         pVert[i][s_y] = ISPDParser::Point(i+1, s_y);
     }
     for(int i = source.x + 1; i <= x2; ++i){
-        costVert[i][s_y] = (costVert[i-1][s_y] + OF(ISPDParser::Point(i-1, s_y), ISPDParser::Point(i, s_y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));
+        costVert[i][s_y] = (costVert[i-1][s_y] + cost(ISPDParser::Point(i-1, s_y), ISPDParser::Point(i, s_y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));
         pVert[i][s_y] = ISPDParser::Point(i-1, s_y);
     }
     
@@ -362,15 +364,15 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
         }
     }
     for(int y = s_y + 1; y <= y2; ++y){
-        std::vector<int> rowCost(x2 - x1 + 1, INT32_MAX);
+        std::vector<double> rowCost(x2 - x1 + 1, INT32_MAX);
         std::vector<bool> isVisit(x2 - x1 + 1, false); 
         //setting initial cost with verical edge  
-        for(int x = x1; x <= x2; ++x){rowCost[x-x1] = (costVert[x][y-1] + OF(ISPDParser::Point(x, y), ISPDParser::Point(x, y-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));}
+        for(int x = x1; x <= x2; ++x){rowCost[x-x1] = (costVert[x][y-1] + cost(ISPDParser::Point(x, y), ISPDParser::Point(x, y-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));}
         
     // std::cout<<x1<<" "<<" "<<y1<<" "<<x2<<" "<<y2<<" "<<s_x<<" "<<s_y<<std::endl;
     // std::cout<<x2 - x1 + 1<<" "<<y<<std::endl;
         for(int _ = 0; _ < x2 - x1 + 1; ++_){
-            int minCost = INT32_MAX;
+            double minCost = INT32_MAX;
             int minX = -1;
             for(int x = x1; x <= x2; ++x){
                 if(!isVisit[x-x1] && rowCost[x-x1] < minCost){
@@ -382,13 +384,13 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
             isVisit[minX-x1] = true;
             costVert[minX][y] = rowCost[minX-x1];
             //adjust left and right
-            if(minX - 1 >= x1 && !isVisit[minX -x1 - 1] && rowCost[minX-x1-1] > rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minX - 1 >= x1 && !isVisit[minX -x1 - 1] && rowCost[minX-x1-1] > rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pVert[minX-1][y] = ISPDParser::Point(minX, y);
-                rowCost[minX-x1-1] = rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                rowCost[minX-x1-1] = rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
-            if(minX + 1 <= x2 && !isVisit[minX -x1 + 1] && rowCost[minX-x1+1] > rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minX + 1 <= x2 && !isVisit[minX -x1 + 1] && rowCost[minX-x1+1] > rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pVert[minX+1][y] = ISPDParser::Point(minX, y);
-                rowCost[minX-x1+1] = rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                rowCost[minX-x1+1] = rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
@@ -401,13 +403,13 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
         }
     }
     for(int y = s_y - 1; y >= y1; --y){
-        std::vector<int> rowCost(x2 - x1 + 1, INT32_MAX);
+        std::vector<double> rowCost(x2 - x1 + 1, INT32_MAX);
         std::vector<bool> isVisit(x2 - x1 + 1, false); 
         //setting initial cost with verical edge  
-        for(int x = x1; x <= x2; ++x){rowCost[x-x1] = (costVert[x][y+1] + OF(ISPDParser::Point(x, y), ISPDParser::Point(x, y+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));}
+        for(int x = x1; x <= x2; ++x){rowCost[x-x1] = (costVert[x][y+1] + cost(ISPDParser::Point(x, y), ISPDParser::Point(x, y+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));}
     
         for(int _ = 0; _ < x2 - x1 + 1; ++_){
-            int minCost = INT32_MAX;
+            double minCost = INT32_MAX;
             int minX = -1;
             for(int x = x1; x <= x2; ++x){
                 if(!isVisit[x-x1] && rowCost[x-x1] < minCost){
@@ -418,33 +420,34 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
             isVisit[minX-x1] = true;
             costVert[minX][y] = rowCost[minX-x1];
             //adjust left and right
-            if(minX - 1 >= x1 && !isVisit[minX -x1 - 1] && rowCost[minX-x1-1] > rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minX - 1 >= x1 && !isVisit[minX -x1 - 1] && rowCost[minX-x1-1] > rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pVert[minX-1][y] = ISPDParser::Point(minX, y);
-                rowCost[minX-x1-1] = rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                rowCost[minX-x1-1] = rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX-1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
-            if(minX + 1 <= x2 && !isVisit[minX -x1 + 1] && rowCost[minX-x1+1] > rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minX + 1 <= x2 && !isVisit[minX -x1 + 1] && rowCost[minX-x1+1] > rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pVert[minX+1][y] = ISPDParser::Point(minX, y);
-                rowCost[minX-x1+1] = rowCost[minX-x1] + OF(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                rowCost[minX-x1+1] = rowCost[minX-x1] + cost(ISPDParser::Point(minX, y), ISPDParser::Point(minX+1, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
 
     /* hori monotonic route */
-    std::vector<std::vector<int>> costHori(
-        costMap.size(),
-        std::vector<int>(costMap[0].size(), 0)
-    );
+    // std::vector<std::vector<int>> costHori(
+    //     costMap.size(),
+    //     std::vector<int>(costMap[0].size(), 0)
+    // );
     // std::vector<std::vector<ISPDParser::Point>> pHori(
     //     costMap.size(),
     //     std::vector<ISPDParser::Point>(costMap[0].size(), ISPDParser::Point(-1, -1))
     // );
     pHori[s_x][s_y] = ISPDParser::Point(s_x, s_y);
+    costHori[s_x][s_y] = 0;
     for(int i = s_y - 1; i >= y1; --i){
-        costHori[s_x][i] = (costHori[s_x][i+1] + OF(ISPDParser::Point(s_x, i), ISPDParser::Point(s_x, i+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));
+        costHori[s_x][i] = (costHori[s_x][i+1] + cost(ISPDParser::Point(s_x, i), ISPDParser::Point(s_x, i+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));
         pHori[s_x][i] = ISPDParser::Point(s_x, i+1);
     }
     for(int i = s_y + 1; i <= y2; ++i){
-        costHori[s_x][i] = (costHori[s_x][i-1] + OF(ISPDParser::Point(s_x, i), ISPDParser::Point(s_x, i-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));
+        costHori[s_x][i] = (costHori[s_x][i-1] + cost(ISPDParser::Point(s_x, i), ISPDParser::Point(s_x, i-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));
         pHori[s_x][i] = ISPDParser::Point(s_x, i-1);
     }
     //Right
@@ -454,13 +457,13 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
         }
     }
     for(int x = s_x + 1; x <= x2; ++x){
-        std::vector<int> colCost(y2 - y1 + 1, INT32_MAX);
+        std::vector<double> colCost(y2 - y1 + 1, INT32_MAX);
         std::vector<bool> isVisit(y2 - y1 + 1, false); 
         //setting initial cost with verical edge  
-        for(int y = y1; y <= y2; ++y){colCost[y-y1] = (costHori[x-1][y] + OF(ISPDParser::Point(x-1, y), ISPDParser::Point(x, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));}
+        for(int y = y1; y <= y2; ++y){colCost[y-y1] = (costHori[x-1][y] + cost(ISPDParser::Point(x-1, y), ISPDParser::Point(x, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));}
     
         for(int _ = 0; _ < y2 - y1 + 1; ++_){
-            int minCost = INT32_MAX;
+            double minCost = INT32_MAX;
             int minY = -1;
             for(int y = y1; y <= y2; ++y){
                 if(!isVisit[y-y1] && colCost[y-y1] < minCost){
@@ -471,13 +474,13 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
             isVisit[minY-y1] = true;
             costHori[x][minY] = colCost[minY-y1];
             //adjust top and bottom 
-            if(minY - 1 >= y1 && !isVisit[minY -y1 - 1] && colCost[minY-y1-1] > colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minY - 1 >= y1 && !isVisit[minY -y1 - 1] && colCost[minY-y1-1] > colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pHori[x][minY-1] = ISPDParser::Point(x, minY);
-                colCost[minY-y1-1] = colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                colCost[minY-y1-1] = colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
-            if(minY + 1 <= y2 && !isVisit[minY -y1 + 1] && colCost[minY-y1+1] > colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minY + 1 <= y2 && !isVisit[minY -y1 + 1] && colCost[minY-y1+1] > colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pHori[x][minY+1] = ISPDParser::Point(x, minY);
-                colCost[minY-y1+1] = colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                colCost[minY-y1+1] = colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
@@ -488,13 +491,13 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
         }
     }
     for(int x = s_x - 1; x >= x1; --x){
-        std::vector<int> colCost(y2 - y1 + 1, INT32_MAX);
+        std::vector<double> colCost(y2 - y1 + 1, INT32_MAX);
         std::vector<bool> isVisit(y2 - y1 + 1, false); 
         //setting initial cost with verical edge  
-        for(int y = y1; y <= y2; ++y){colCost[y-y1] = (costHori[x+1][y] + OF(ISPDParser::Point(x+1, y), ISPDParser::Point(x, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr));}
+        for(int y = y1; y <= y2; ++y){colCost[y-y1] = (costHori[x+1][y] + cost(ISPDParser::Point(x+1, y), ISPDParser::Point(x, y), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist));}
     
         for(int _ = 0; _ < y2 - y1 + 1; ++_){
-            int minCost = INT32_MAX;
+            double minCost = INT32_MAX;
             int minY = -1;
             for(int y = y1; y <= y2; ++y){
                 if(!isVisit[y-y1] && colCost[y-y1] < minCost){
@@ -505,68 +508,18 @@ std::vector<std::vector<std::vector<ISPDParser::Point>>> unilateral_mono_route(i
             isVisit[minY-y1] = true;
             costHori[x][minY] = colCost[minY-y1];
             //adjust top and bottom 
-            if(minY - 1 >= y1 && !isVisit[minY -y1 - 1] && colCost[minY-y1-1] > colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minY - 1 >= y1 && !isVisit[minY -y1 - 1] && colCost[minY-y1-1] > colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pHori[x][minY-1] = ISPDParser::Point(x, minY);
-                colCost[minY-y1-1] = colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                colCost[minY-y1-1] = colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY-1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
-            if(minY + 1 <= y2 && !isVisit[minY -y1 + 1] && colCost[minY-y1+1] > colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr)){
+            if(minY + 1 <= y2 && !isVisit[minY -y1 + 1] && colCost[minY-y1+1] > colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist)){
                 pHori[x][minY+1] = ISPDParser::Point(x, minY);
-                colCost[minY-y1+1] = colCost[minY-y1] + OF(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr);
+                colCost[minY-y1+1] = colCost[minY-y1] + cost(ISPDParser::Point(x, minY), ISPDParser::Point(x, minY+1), minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
             }
         }
     }
 
 
-
-
-
-    /* select path from hori or vert */
-    std::vector<std::vector<std::vector<ISPDParser::Point>>> bestPath(
-        costMap.size(),
-        std::vector<std::vector<ISPDParser::Point>>( 
-            costMap[0].size(), 
-            std::vector<ISPDParser::Point>() 
-        )
-    );
-    // for(int x =  52; x <= 56; ++x){
-    //     for(int y = 5; y <= 15; ++y){
-    //         std::cout<<pVert[x][y].x<<","<<pVert[x][y].y<<" ";
-    //     }
-    //     std::cout<<std::endl;
-    // }
-    // std::cout<<"--------------------"<<std::endl;
-
-    for(int x = x1; x <= x2; ++x){
-        for(int y = y1; y <= y2; ++y){
-            std::vector<ISPDParser::Point> tPath;
-            int _x = x, _y = y;
-            if(costHori[x][y] < costVert[x][y]){
-                costMap[x][y] =  costHori[x][y];
-                while(pHori[_x][_y].x != _x || pHori[_x][_y].y != _y){
-                    // std::cout<<s_x<<" "<<s_y<<std::endl;
-                    // std::cout<<pHori[_x][_y].x<<" "<<pHori[_x][_y].y<<" "<<x<<" "<<std::endl;
-                    tPath.push_back(ISPDParser::Point(_x, _y));
-                    int t_x = _x, t_y = _y;
-                    _x = pHori[t_x][t_y].x;
-                    _y = pHori[t_x][t_y].y;
-                }
-            }
-            else{
-                costMap[x][y] =  costVert[x][y];
-                while(pVert[_x][_y].x != _x || pVert[_x][_y].y != _y){
-                    // std::cout<<pVert[_x][_y].x<<" "<<pVert[_x][_y].y<<" "<<x<<" "<<std::endl;
-                    tPath.push_back(ISPDParser::Point(_x, _y));
-                    int t_x = _x, t_y = _y;
-                    _x = pVert[t_x][t_y].x;
-                    _y = pVert[t_x][t_y].y;
-                }
-            }
-            tPath.push_back(ISPDParser::Point(s_x, s_y));
-            bestPath[x][y] = tPath;
-        }
-    }
-
-    return bestPath;
 }
 
 int calOF(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path, std::vector<std::vector<int>>& vertCap, 
@@ -579,8 +532,7 @@ int calOF(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path, std::
         totalOF += currOF(ISPDParser::Point(x1, y1), ISPDParser::Point(x2, y2), vertCap, horiCap, vertCurr, horiCurr);
     }
           
-    return totalOF;
-        
+    return totalOF;  
 }
 bool compareTwoPinHPWL(ISPDParser::TwoPin* a, ISPDParser::TwoPin* b) {
     return a->HPWL() < b->HPWL();
@@ -635,6 +587,9 @@ int main(int argc, char **argv) {
     std::vector<std::vector<int>> vertCurr(ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
     std::vector<std::vector<int>> horiCurr(ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
 
+    std::vector<std::vector<int>> vertHistoryRipUp(ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+    std::vector<std::vector<int>> horiHistoryRipUp(ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+
     for(auto& capAdj: ispdData->capacityAdjs){
         int x1 = std::get<0>(capAdj->grid1), y1 = std::get<1>(capAdj->grid1), z1 = std::get<2>(capAdj->grid1);
         int x2 = std::get<0>(capAdj->grid2), y2 = std::get<1>(capAdj->grid2), z2 = std::get<2>(capAdj->grid2);
@@ -669,123 +624,14 @@ int main(int argc, char **argv) {
 
     std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
 
-    /* pattern route */
-    for(auto& ptrTwopin: twopins){
-        ptrTwopin->corr_path = pattern_route((*ptrTwopin), ispdData->minimumSpacing[0], vertCap, horiCap,vertCurr, horiCurr);
-        fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-    }
-    // for(auto& net: ispdData->nets){
-    //     for(int i = 0; i < net->twopin.size(); ++i){
-    //         net->twopin[i].corr_path = pattern_route(net->twopin[i], ispdData->minimumSpacing[0], vertCap, horiCap,vertCurr, horiCurr);
-    //         fill_cap(net, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-    //     }
-    // }
-
-
-    /* HUM */
-    twopins.clear();
-    for(auto& net: ispdData->nets){
-        for(int i = 0; i < net->twopin.size(); ++i){
-            if(calOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr) > 0){
-                twopins.push_back(&net->twopin[i]);
-            }
-        }
-    }
-    std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
-    std::cout<<"iter "<<": "<<twopins.size()<<" pair twopins"<<std::endl;
-
-
-    std::priority_queue<ISPDParser::twopinInfo> twopinHeap;
-    for(auto& net: ispdData->nets){
-        for(int i = 0; i < net->twopin.size(); ++i){
-            int of = calOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr);
-            twopinHeap.push(ISPDParser::twopinInfo(&net->twopin[i], of));
-        }
-    }
-
 
   
-    int count = 0;
-    // while (!twopinHeap.empty()) {
-    for (int i = 0; i < twopins.size(); ++i) {
-        ++count;
-        if(count%100 == 0){std::cout<<count<<" twopin\n";}
-        auto ptrTwopin = twopins[i];
 
-        ISPDParser::TwoPin topTwopin = *(ptrTwopin);
-        ISPDParser::Point s = topTwopin.from;
-        ISPDParser::Point t = topTwopin.to;
-
-        int x1 = std::min(s.x, t.x), x2 = std::max(s.x, t.x);
-        int y1 = std::min(s.y, t.y), y2 = std::max(s.y, t.y);
-        int boxSize = 20;
-        x1 = std::max(x1 - boxSize, 0);
-        y1 = std::max(y1 - boxSize, 0);
-        x2 = std::min(x2 + boxSize, ispdData->numXGrid - 1);
-        y2 = std::min(y2 + boxSize, ispdData->numYGrid - 1);
-        std::vector<std::vector<int>> suCost(
-            ispdData->numXGrid,
-            std::vector<int>(ispdData->numYGrid, 0)
-        );
-        std::vector<std::vector<int>> utCost(
-            ispdData->numXGrid,
-            std::vector<int>(ispdData->numYGrid, 0)
-        );
-        std::vector<std::vector<ISPDParser::Point>> suVert(
-            ispdData->numXGrid,
-            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-        );
-        std::vector<std::vector<ISPDParser::Point>> utVert(
-            ispdData->numXGrid,
-            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-        );
-        std::vector<std::vector<ISPDParser::Point>> suHori(
-            ispdData->numXGrid,
-            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-        );
-        std::vector<std::vector<ISPDParser::Point>> utHori(
-            ispdData->numXGrid,
-            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-        );
-        // std::cout<<s.x<<","<<s.y<<"->"<<t.x<<","<<t.y<<" "<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
-        std::vector<std::vector<std::vector<ISPDParser::Point>>> s_u = unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori);
-        std::vector<std::vector<std::vector<ISPDParser::Point>>> u_t = unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori);
-        
-
-
-        int minCost = INT32_MAX;
-        ISPDParser::Point minU(-1, -1);
-        for(int x = x1; x <= x2; ++x){
-            for(int y = y1; y <= y2; ++y){
-                if(suCost[x][y] + utCost[x][y] < minCost){
-                    minCost = suCost[x][y] + utCost[x][y];
-                    minU = ISPDParser::Point(x, y);
-                }
-            }  
-        }  
-        // std::cout<<minU.x<<" "<<minU.y<<std::endl;
-        // std::cout<<s.x<<" "<<s.y<<" to "<<t.x<<" "<<t.y<<std::endl;
-        // std::vector<ISPDParser::Point> suPath = s_u[minU.x][minU.y];
-        // for(auto& p: s_u[minU.x][minU.y]){
-        //     std::cout<<p.x<<" "<<p.y<<std::endl;
-        // }
-        std::reverse(s_u[minU.x][minU.y].begin(), s_u[minU.x][minU.y].end());
-        s_u[minU.x][minU.y].pop_back();
-        s_u[minU.x][minU.y].insert(s_u[minU.x][minU.y].end(), u_t[minU.x][minU.y].begin(), u_t[minU.x][minU.y].end());
-
-        remove_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-        ptrTwopin->corr_path = s_u[minU.x][minU.y];
+    /* pattern route */
+    for(auto& ptrTwopin: twopins){
+        ptrTwopin->corr_path = pattern_route((*ptrTwopin), ispdData->minimumSpacing[0], vertCap, horiCap,vertCurr, horiCurr, vertHistoryRipUp, horiHistoryRipUp);
         fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-        // for(auto& p: s_u[minU.x][minU.y]){
-        //     std::cout<<p.x<<" "<<p.y<<std::endl;
-        // }
-        // for(auto& p: u_t[minU.x][minU.y]){
-        //     std::cout<<p.x<<" "<<p.y<<std::endl;
-        // }
-        // std::cout<<t.x<<" "<<t.y<<std::endl;
-        // break;
     }
-
     /* construct RPoint path in each twopin*/
     for(auto& net: ispdData->nets){
         for(auto& pinpair: net->twopin){
@@ -799,6 +645,232 @@ int main(int argc, char **argv) {
 
     // Output result
     graph.output3Dresult("3ds1.txt");
+
+
+    /* HUM */
+    int MaxIter = 20;
+    for(int it = 0; it < MaxIter; ++it){
+        twopins.clear();
+        vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+        horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+        for(auto& net: ispdData->nets){
+            for(int i = 0; i < net->twopin.size(); ++i){
+                if(calOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr) > 0){
+                    twopins.push_back(&net->twopin[i]);
+                    remove_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                    fill_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+                }
+            }
+        }
+        std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        // for(auto& t: twopins){
+        //     std::cout<<t->HPWL()<<std::endl;
+        // }
+        std::cout<<"iter "<<it + 1<<" : "<<twopins.size()<<" overflow twopins"<<std::endl;
+
+
+
+
+    
+        int count = 0;
+        // while (!twopinHeap.empty()) {
+        for (int i = 0; i < twopins.size(); ++i) {
+            ++count;
+            if(count%(twopins.size()/5) == 0){std::cout<<count<<" twopin\n";}
+            auto ptrTwopin = twopins[i];
+
+            ISPDParser::TwoPin topTwopin = *(ptrTwopin);
+            ISPDParser::Point s = topTwopin.from;
+            ISPDParser::Point t = topTwopin.to;
+
+            int x1 = std::min(s.x, t.x), x2 = std::max(s.x, t.x);
+            int y1 = std::min(s.y, t.y), y2 = std::max(s.y, t.y);
+            int boxSize = 10 + it*20;
+            x1 = std::max(x1 - boxSize, 0);
+            y1 = std::max(y1 - boxSize, 0);
+            x2 = std::min(x2 + boxSize, ispdData->numXGrid - 1);
+            y2 = std::min(y2 + boxSize, ispdData->numYGrid - 1);
+            std::vector<std::vector<double>> suCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<double>> utCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<double>> suVertCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<double>> utVertCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<double>> suHoriCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<double>> utHoriCost(
+                ispdData->numXGrid,
+                std::vector<double>(ispdData->numYGrid, 0)
+            );
+            std::vector<std::vector<ISPDParser::Point>> suVert(
+                ispdData->numXGrid,
+                std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+            );
+            std::vector<std::vector<ISPDParser::Point>> utVert(
+                ispdData->numXGrid,
+                std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+            );
+            std::vector<std::vector<ISPDParser::Point>> suHori(
+                ispdData->numXGrid,
+                std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+            );
+            std::vector<std::vector<ISPDParser::Point>> utHori(
+                ispdData->numXGrid,
+                std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+            );
+            // std::cout<<s.x<<","<<s.y<<"->"<<t.x<<","<<t.y<<" "<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
+            // std::vector<std::vector<std::vector<ISPDParser::Point>>> s_u = unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori);
+            // std::vector<std::vector<std::vector<ISPDParser::Point>>> u_t = unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori);
+            unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori, suVertCost, suHoriCost, vertHistoryRipUp, horiHistoryRipUp);
+            unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori, utVertCost, utHoriCost, vertHistoryRipUp, horiHistoryRipUp);
+            
+
+
+            
+            
+            /* select path from hori or vert */
+            int minSUT = INT32_MAX;
+            ISPDParser::Point minU(-1, -1);
+            for(int x = x1; x <= x2; ++x){
+                for(int y = y1; y <= y2; ++y){
+                    if(std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]) < minSUT){
+                        minSUT = std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]);
+                        minU = ISPDParser::Point(x, y);
+                    }
+                }
+            }
+            // for(int x = 178; x <= 182; ++x){
+            //     for(int y = 304; y <= 308; ++y){
+            //         std::cout<<suVert[x][y].x<<","<<suVert[x][y].y<<" ";
+            //     }
+            //     std::cout<<std::endl;
+            // }
+            // return 0;
+            std::vector<ISPDParser::Point> sutPath;
+            int currX = minU.x, currY = minU.y;
+            if(suHoriCost[minU.x][minU.y] < suVertCost[minU.x][minU.y]){
+                while(suHori[currX][currY].x != currX || suHori[currX][currY].y != currY){
+                    sutPath.push_back(ISPDParser::Point(currX, currY));
+                    int t_x = currX, t_y = currY;
+                    currX = suHori[t_x][t_y].x;
+                    currY = suHori[t_x][t_y].y;
+                }
+            }
+            else{
+                while(suVert[currX][currY].x != currX || suVert[currX][currY].y != currY){
+                    sutPath.push_back(ISPDParser::Point(currX, currY));
+                    int t_x = currX, t_y = currY;
+                    currX = suVert[t_x][t_y].x;
+                    currY = suVert[t_x][t_y].y;
+                }
+            }
+
+            
+            // for(int x = x1; x <= x2; ++x){
+            //     for(int y = y1; y <= y2; ++y){
+            //         std::cout<<suVertCost[x][y]<<" ";
+            //     }
+            //     std::cout<<std::endl;
+            // }
+            // std::cout<<"-------------------------------------"<<std::endl;
+            // for(int x = x1; x <= x2; ++x){
+            //     for(int y = y1; y <= y2; ++y){
+            //         std::cout<<suHoriCost[x][y]<<" ";
+            //     }
+            //     std::cout<<std::endl;
+            // }
+
+            // std::cout<<s.x<<","<<s.y<<" -> "<<t.x<<","<<t.y<<std::endl;
+            // std::cout<<minU.x<<","<<minU.y<<std::endl;
+            // std::cout<<suVertCost[minU.x][minU.y]<<std::endl;
+            // std::cout<<suHoriCost[minU.x][minU.y]<<std::endl;
+            // std::cout<<utVertCost[minU.x][minU.y]<<std::endl;
+            // std::cout<<utHoriCost[minU.x][minU.y]<<std::endl;
+            // if(topTwopin.HPWL() > 5){return 0;}
+
+
+            sutPath.push_back(ISPDParser::Point(s.x, s.y));
+            
+            reverse(sutPath.begin(), sutPath.end());
+            sutPath.pop_back();
+
+            currX = minU.x;
+            currY = minU.y;
+            if(utHoriCost[minU.x][minU.y] < utVertCost[minU.x][minU.y]){
+                while(utHori[currX][currY].x != currX || utHori[currX][currY].y != currY){
+                    sutPath.push_back(ISPDParser::Point(currX, currY));
+                    int t_x = currX, t_y = currY;
+                    currX = utHori[t_x][t_y].x;
+                    currY = utHori[t_x][t_y].y;
+                }
+            }
+            else{
+                while(utVert[currX][currY].x != currX || utVert[currX][currY].y != currY){
+                    sutPath.push_back(ISPDParser::Point(currX, currY));
+                    int t_x = currX, t_y = currY;
+                    currX = utVert[t_x][t_y].x;
+                    currY = utVert[t_x][t_y].y;
+                }
+            }
+            sutPath.push_back(ISPDParser::Point(t.x, t.y));
+
+
+
+            ptrTwopin->corr_path = sutPath;
+            // for(auto& p: sutPath){
+            //     std::cout<<p.x<<","<<p.y<<std::endl;
+            // }
+            fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+            // for(auto& p: s_u[minU.x][minU.y]){
+            //     std::cout<<p.x<<" "<<p.y<<std::endl;
+            // }
+            // for(auto& p: u_t[minU.x][minU.y]){
+            //     std::cout<<p.x<<" "<<p.y<<std::endl;
+            // }
+            // std::cout<<t.x<<" "<<t.y<<std::endl;
+            // break;
+        }
+        /* construct RPoint path in each twopin*/
+        for(auto& net: ispdData->nets){
+            for(auto& pinpair: net->twopin){
+                pinpair.create_path();
+            }
+        }
+        LayerAssignment::Graph graph;
+        graph.initialLA(*ispdData, 1);
+        graph.convertGRtoLA(*ispdData, true);
+        graph.COLA(true);
+
+        // Output result
+        graph.output3Dresult("3ds1.txt");
+    }
+    
+
+    // /* construct RPoint path in each twopin*/
+    // for(auto& net: ispdData->nets){
+    //     for(auto& pinpair: net->twopin){
+    //         pinpair.create_path();
+    //     }
+    // }
+    // LayerAssignment::Graph graph;
+    // graph.initialLA(*ispdData, 1);
+    // graph.convertGRtoLA(*ispdData, true);
+    // graph.COLA(true);
+
+    // // Output result
+    // graph.output3Dresult("3ds1.txt");
   
 
 
