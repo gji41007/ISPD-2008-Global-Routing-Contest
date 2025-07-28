@@ -106,7 +106,7 @@ struct Graph {
     // T. -H. Lee and T. -C. Wang, "Congestion-Constrained Layer Assignment for Via Minimization in Global Routing," 
     // in IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems, 
     // vol. 27, no. 9, pp. 1643-1656, Sept. 2008, doi: 10.1109/TCAD.2008.927733.
-    void COLA(bool print_to_screen);
+    bool COLA(bool print_to_screen);
     bool singleNetLA(Net &nn);
     void initialLeaf(Net &nn, int nodeIndex, vector<vector<SolVia>> &solArray);
     void propagate(Net &nn, int nodeIndex, vector<vector<SolVia>> &solArray);
