@@ -12,6 +12,12 @@
 #include <set>
 #include <algorithm>
 
+
+
+#include "flute.h"
+
+
+
 namespace ISPDParser {
 
 struct TwoPin;
@@ -137,7 +143,65 @@ public:
     // Two pin nets
     std::vector<TwoPin> twopin;
 
+    void FLUTE_decompose(Flute::FluteState* flute_p, int numXGrid, int numYGrid){
+        if (pin2D.size() < 2) {
+                std::cerr << "Net " << name << " has less than 2 pins, skip decomposition.\n";
+                return;
+        }
 
+        twopin.clear();
+
+        std::vector<FLUTE_DTYPE> x, y;
+        for (auto& pin : pin2D) {
+            x.push_back(pin.x);
+            y.push_back(pin.y);
+        }
+
+        Flute::Tree tree = Flute::flute(flute_p, pin2D.size(), x.data(), y.data(), FLUTE_ACCURACY);
+        
+
+        if (tree.deg <= 0 || !tree.branch) {
+            std::cerr << "Invalid tree for net " << name << "\n";
+            return;
+        }
+
+        const int totalBranches = tree.deg - 1;
+        // std::cout<<totalBranches<<" twopin nets"<<std::endl;
+        for (int i = 0; i < totalBranches; i++) {
+            // 检查坐标是否在网格范围内
+            if (tree.branch[i].x < 0 || tree.branch[i].x >= numXGrid ||
+                tree.branch[i].y < 0 || tree.branch[i].y >= numYGrid) {
+                std::cerr << "Invalid coordinate in Steiner tree: ("
+                        << tree.branch[i].x << "," << tree.branch[i].y << ")\n";
+                exit(EXIT_FAILURE);
+            }
+            // ... 其他处理 ...
+        }
+
+        for (int i = 0; i < totalBranches; i++) {
+            if (i < 0 || i >= totalBranches) continue;
+            
+            int j = tree.branch[i].n;
+            if (j < 0 || j >= totalBranches) continue;
+
+            if (i < j) {
+                Point from{static_cast<int>(tree.branch[i].x), 
+                        static_cast<int>(tree.branch[i].y)};    
+                Point to{static_cast<int>(tree.branch[j].x), 
+                        static_cast<int>(tree.branch[j].y)};
+                if (from.x != to.x || from.y != to.y) {
+                    TwoPin t_pin(from, to);
+                    t_pin.parNet = this; 
+                    twopin.push_back(t_pin);
+                }
+            }
+        }
+
+        // std::cout << "Net " << name << " decomposed into " << twopin.size() 
+        //         << " two-pin nets (total branches: " << totalBranches << ")\n";
+        
+        Flute::free_tree(flute_p, tree);
+    }
     void decompose(){
         std::vector<int> dist(pin2D.size(), INT32_MAX);
         std::vector<int> parent(pin2D.size(), -1);
@@ -177,12 +241,13 @@ public:
         for(int i = 0; i < pin2D.size(); ++i){
             if(parent[i] == -1){continue;}
             TwoPin t_pin(pin3D[i], pin3D[parent[i]]);
+            t_pin.parNet = this;
             twopin.push_back(t_pin);
         }
     }
 
     void set_net(Net* net){
-        for(int i = 0; i < pin2D.size() - 1; i++){
+        for(int i = 0; i < twopin.size(); i++){
             twopin[i].parNet = net;
         }
     }
