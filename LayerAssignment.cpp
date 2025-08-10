@@ -563,7 +563,7 @@ void Graph::sort_net()
 }
 
 
-bool Graph::COLA(bool print_to_screen)
+void Graph::COLA(bool print_to_screen)
 {
     totalVia = 0;
     totalOF = 0;
@@ -597,7 +597,6 @@ bool Graph::COLA(bool print_to_screen)
     }
     if (print_to_screen)
         printf("totalOF=%d  maxOF=%d  weightOF=%.0lf   Wlen2D=%d  Via=%d  totalWL(Wlen2D+Via*%d)=%d \n", totalOF, maxOF, weightOF, origiWL, totalVia, viaCost, totalVia * viaCost + origiWL);
-    return (totalOF == 0);
 }
 
 int Graph::getSingleNetlVia(Net &cn)
