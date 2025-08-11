@@ -826,6 +826,18 @@ int main(int argc, char **argv) {
   
 
     /* decompsition, sort two pin net*/
+    for(auto& net: ispdData->nets){
+         std::sort(net->pin2D.begin(), net->pin2D.end());
+
+        // Move unique elements to the beginning and get an iterator to the new end
+        auto last = std::unique(net->pin2D.begin(), net->pin2D.end());
+
+        // Erase the duplicate elements from the end of the vector
+        net->pin2D.erase(last, net->pin2D.end());
+
+    }
+
+
     std::vector<ISPDParser::TwoPin*> twopins;
     for(auto& net: ispdData->nets){
         if(net->numPins <= 9){
