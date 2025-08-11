@@ -52,7 +52,15 @@ public:
     RPoint(int x, int y, int z, bool h) : x(x), y(y), z(z), hori(h) {}
     RPoint(const RPoint &p) : x(p.x), y(p.y), z(p.z), hori(p.hori) {}
 };
+inline bool operator<(const Point &a, const Point &b) {
+    if (a.x != b.x) return a.x < b.x;
+    if (a.y != b.y) return a.y < b.y;
+    return a.z < b.z;
+}
 
+inline bool operator==(const Point &a, const Point &b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
 struct TwoPin
 {
     Point from, to;

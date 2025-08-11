@@ -826,25 +826,27 @@ int main(int argc, char **argv) {
   
 
     /* decompsition, sort two pin net*/
-    for(auto& net: ispdData->nets){
-         std::sort(net->pin2D.begin(), net->pin2D.end());
+    // for(auto& net: ispdData->nets){
+    //      std::sort(net->pin2D.begin(), net->pin2D.end());
 
-        // Move unique elements to the beginning and get an iterator to the new end
-        auto last = std::unique(net->pin2D.begin(), net->pin2D.end());
+    //     // Move unique elements to the beginning and get an iterator to the new end
+    //     auto last = std::unique(net->pin2D.begin(), net->pin2D.end());
 
-        // Erase the duplicate elements from the end of the vector
-        net->pin2D.erase(last, net->pin2D.end());
+    //     // Erase the duplicate elements from the end of the vector
+    //     net->pin2D.erase(last, net->pin2D.end());
 
-    }
+    // }
 
 
     std::vector<ISPDParser::TwoPin*> twopins;
+    int c = 0;
     for(auto& net: ispdData->nets){
         if(net->numPins <= 9){
             net->FLUTE_decompose(flute_p, ispdData->numXGrid, ispdData->numYGrid);
         }
         else{
             net->decompose();
+            ++c;
         }
         net->set_net(net);
         for(int i = 0; i < net->twopin.size(); ++i){
@@ -852,8 +854,7 @@ int main(int argc, char **argv) {
         }
 
     }
-
-
+    std::cout<<c<<" s"<<std::endl;
     std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
 
 
