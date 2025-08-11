@@ -10,6 +10,8 @@
 #include <queue>
 
 #include <cmath>
+#include <utility>
+#include <cfloat>
 
 
 int OF(ISPDParser::Point a, ISPDParser::Point b, int minwidth, int minSpace, 
@@ -47,7 +49,7 @@ double cost(ISPDParser::Point a, ISPDParser::Point b, int minwidth, int minSpace
     double h1 = 5;
     double h2 = 150;
     double k = 1;
-    double histWeight = 2;
+    double histWeight = 0.1;
     double histCost;
 
 
@@ -118,7 +120,7 @@ int currOF(ISPDParser::Point a, ISPDParser::Point b,
         return std::max((vertCurr[x2][y2] - vertCap[x2][y2]), 0);
     }
     else{
-        std::cerr<<"error in currOF: not adjecnt grid\n";
+        std::cerr<<"error in currOF(): not adjecnt grid\n";
         exit(-1);
     }
 }
@@ -145,7 +147,7 @@ void fill_cap(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path, i
             vertCurr[x2][y2] += (net->minimumWidth + minSpace);
         }
         else{
-            std::cerr<<"error in fill_cap: not adjecnt grid("<<x1<<","<<y1<<"->"<<x2<<","<<y2<<std::endl;
+            std::cerr<<"error in fill_cap(): not adjecnt grid("<<x1<<","<<y1<<"->"<<x2<<","<<y2<<std::endl;
             exit(-1);
         }
     }
@@ -645,6 +647,74 @@ std::vector<ISPDParser::Point> mono_route(ISPDParser::TwoPin twopin, ISPDParser:
         currY = pMap[_x][_y].y;
     }
     minPath.push_back(ISPDParser::Point(currX, currY));
+    std::reverse(minPath.begin(), minPath.end());
+    return minPath;
+}
+std::vector<ISPDParser::Point> maze_route(ISPDParser::Point source, ISPDParser::Point target, int minwidth, int minSpace, 
+                           std::vector<std::vector<int>>& vertCap, std::vector<std::vector<int>>& horiCap, std::vector<std::vector<int>>& vertCurr, std::vector<std::vector<int>>& horiCurr,
+                           std::vector<std::vector<ISPDParser::Point>>& pMap, std::vector<std::vector<int>>& vertHist, std::vector<std::vector<int>>& horiHist){    
+    
+    std::vector<std::vector<bool>> isVisit(pMap.size(), std::vector<bool>(pMap[0].size(), false));
+    std::vector<std::vector<double>> minCost(pMap.size(), std::vector<double>(pMap[0].size(), DBL_MAX));
+    int s_x = source.x, s_y = source.y;
+    int t_x = target.x, t_y = target.y;
+
+    using gridCost = std::pair<std::pair<int, int>, double>;
+    auto cmp = [](const gridCost& a, const gridCost& b) {
+        return a.second > b.second; 
+    };
+    std::priority_queue<gridCost, std::vector<gridCost>, decltype(cmp)> gridQueue(cmp);
+
+
+    minCost[s_x][s_y] = 0;
+    pMap[s_x][s_y] = ISPDParser::Point(s_x, s_y);
+    gridQueue.push(std::make_pair(std::make_pair(s_x, s_y), 0));
+
+    
+
+    while(!gridQueue.empty()){
+        gridCost p = gridQueue.top();
+        gridQueue.pop();
+        int x = p.first.first, y = p.first.second;
+        double currCost = p.second;
+        if(x == t_x && y == t_y){break;}
+        if(isVisit[x][y]){continue;}
+
+        
+        isVisit[x][y] = true;
+
+
+        std::vector<std::pair<int, int>> directions = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        for(auto& dir : directions) {
+            int nx = x + dir.first;
+            int ny = y + dir.second;
+            
+            if(nx < 0 || nx >= pMap.size() || ny < 0 || ny >= pMap[0].size()) continue;
+            if(isVisit[nx][ny]) continue;
+            
+            double tCost = cost(ISPDParser::Point(x, y), ISPDParser::Point(nx, ny), 
+                                minwidth, minSpace, vertCap, horiCap, vertCurr, horiCurr, vertHist, horiHist);
+            
+            if(currCost + tCost < minCost[nx][ny]){
+                gridQueue.push(std::make_pair(std::make_pair(nx, ny), currCost + tCost));   
+                pMap[nx][ny] = ISPDParser::Point(x, y);
+                minCost[nx][ny] = currCost + tCost;
+            }
+        }
+
+    }
+
+
+    std::vector<ISPDParser::Point> minPath;
+    int currX = t_x, currY = t_y;
+    while(pMap[currX][currY].x != currX || pMap[currX][currY].y != currY){
+        minPath.push_back(ISPDParser::Point(currX, currY));
+        int _x = currX, _y = currY;
+        currX = pMap[_x][_y].x;
+        currY = pMap[_x][_y].y;
+    }
+    minPath.push_back(ISPDParser::Point(currX, currY));
+    std::reverse(minPath.begin(), minPath.end());
     return minPath;
 }
 int calOF(ISPDParser::Net* net, std::vector<ISPDParser::Point>& corr_path, std::vector<std::vector<int>>& vertCap, 
@@ -753,7 +823,7 @@ int main(int argc, char **argv) {
             exit(-1);
         }
     }
-
+  
 
     /* decompsition, sort two pin net*/
     std::vector<ISPDParser::TwoPin*> twopins;
@@ -768,6 +838,7 @@ int main(int argc, char **argv) {
         for(int i = 0; i < net->twopin.size(); ++i){
             twopins.push_back(&net->twopin[i]);
         }
+
     }
 
 
@@ -793,32 +864,38 @@ int main(int argc, char **argv) {
     graph.COLA(true);
 
     // Output result
-    graph.output3Dresult("3ds1.txt");
+    // graph.output3Dresult("3ds1.txt");
 
 
 
     /* Add pattern route*/
-    int PattIter = 0;
+    int PattIter = 3;
     for(int it = 0; it < PattIter; ++it){
-        twopins.clear();
-        vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
-        horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
-        for(auto& net: ispdData->nets){
-            for(int i = 0; i < net->twopin.size(); ++i){
-                if(isOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr)){
-                    twopins.push_back(&net->twopin[i]);
-                    remove_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-                    fill_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+        // twopins.clear();
+        // vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+        // horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+        int ofCount = 0;
+        for(auto& ptrTwopin: twopins){
+        // for(auto& net: ispdData->nets){
+        //     for(int i = 0; i < net->twopin.size(); ++i){
+                if(isOF(ptrTwopin->parNet, ptrTwopin->corr_path, vertCap, horiCap, vertCurr, horiCurr)){
+                    // twopins.push_back(&net->twopin[i]);
+                    remove_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+                
+                    ptrTwopin->corr_path = pattern_route((*ptrTwopin), ispdData->minimumSpacing[0], vertCap, horiCap,vertCurr, horiCurr, vertHistoryRipUp, horiHistoryRipUp);
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                
+                    ++ofCount;
                 }
-            }
+            // }
         }
-        std::cout<<"Patt route iter "<<it + 1<<" : "<<twopins.size()<<" overflow twopins"<<std::endl;
-        if(twopins.empty()){break;}
-        std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        std::cout<<"Patt route iter "<<it + 1<<" : "<<ofCount<<" overflow twopins"<<std::endl;
+        if(ofCount == 0){break;}
+        // std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
         for(auto& ptrTwopin: twopins){
             
-            ptrTwopin->corr_path = pattern_route((*ptrTwopin), ispdData->minimumSpacing[0], vertCap, horiCap,vertCurr, horiCurr, vertHistoryRipUp, horiHistoryRipUp);
-            fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+            
         }
         /* construct RPoint path in each twopin*/
         for(auto& net: ispdData->nets){
@@ -832,40 +909,45 @@ int main(int argc, char **argv) {
         graph.COLA(true);
 
         // Output result
-        graph.output3Dresult("3ds1.txt");
+        // graph.output3Dresult("3ds1.txt");
     }
 
 
 
     //mono route
-    int MonoIter = 5;
+    int MonoIter = 2;
     for(int it = 0; it < MonoIter; ++it){
-        twopins.clear();
-        vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
-        horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
-        for(auto& net: ispdData->nets){
-            for(int i = 0; i < net->twopin.size(); ++i){
-                if(isOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr)){
-                    twopins.push_back(&net->twopin[i]);
-                    remove_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-                    fill_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
-                }
-            }
-        }
-        std::cout<<"Mono route iter "<<it + 1<<" : "<<twopins.size()<<" overflow twopins"<<std::endl;
-        if(twopins.empty()){break;}
-        std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        // twopins.clear();
+        // vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+        // horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+        int ofCount = 0;
         for(auto& ptrTwopin: twopins){
-            std::vector<std::vector<double>> costMap(
-                ispdData->numXGrid,
-                std::vector<double>(ispdData->numYGrid, 0)
-            );
-            std::vector<std::vector<ISPDParser::Point>> pMap(
-                ispdData->numXGrid,
-                std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-            ); 
-            ptrTwopin->corr_path = mono_route((*ptrTwopin), ptrTwopin->from, ptrTwopin->to, costMap, ptrTwopin->parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, pMap, vertHistoryRipUp, horiHistoryRipUp);  
-            fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+        // for(auto& net: ispdData->nets){
+        //     for(int i = 0; i < net->twopin.size(); ++i){
+                if(isOF(ptrTwopin->parNet, ptrTwopin->corr_path, vertCap, horiCap, vertCurr, horiCurr)){
+                    // twopins.push_back(&net->twopin[i]);
+                    remove_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+                    std::vector<std::vector<double>> costMap(
+                        ispdData->numXGrid,
+                        std::vector<double>(ispdData->numYGrid, 0)
+                    );
+                    std::vector<std::vector<ISPDParser::Point>> pMap(
+                        ispdData->numXGrid,
+                        std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                    ); 
+                    ptrTwopin->corr_path = mono_route((*ptrTwopin), ptrTwopin->from, ptrTwopin->to, costMap, ptrTwopin->parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, pMap, vertHistoryRipUp, horiHistoryRipUp);  
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                
+                    ++ofCount;
+                }
+            // }
+        }
+        std::cout<<"Mono route iter "<<it + 1<<" : "<<ofCount<<" overflow twopins"<<std::endl;
+        if(ofCount == 0){break;}
+        // std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        for(auto& ptrTwopin: twopins){
+            
         }
         /* construct RPoint path in each twopin*/
         for(auto& net: ispdData->nets){
@@ -879,169 +961,221 @@ int main(int argc, char **argv) {
         graph.COLA(true);
 
         // Output result
-        graph.output3Dresult("3ds1.txt");
+        // graph.output3Dresult("3ds1.txt");
     }
 
+
+    
+
     /* HUM */
-    int MaxIter = 50;
-    int SingleNetMaxIter = 5;
+    int MaxIter = 20;
+    int SingleNetMaxIter = 10;
     for(int it = 0; it < MaxIter; ++it){
-        twopins.clear();
-        vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
-        horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
-        for(auto& net: ispdData->nets){
-            for(int i = 0; i < net->twopin.size(); ++i){
-                if(isOF(net, net->twopin[i].corr_path, vertCap, horiCap, vertCurr, horiCurr)){
-                    twopins.push_back(&net->twopin[i]);
-                    remove_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
-                    fill_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+        // twopins.clear();
+        // vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+        // horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+
+        // for(auto& net: ispdData->nets){
+        //     for(int i = 0; i < net->twopin.size(); ++i){
+        int ofCount = 0;
+        for(auto&ptrTwopin: twopins){
+                if(isOF(ptrTwopin->parNet, ptrTwopin->corr_path, vertCap, horiCap, vertCurr, horiCurr)){
+                    // twopins.push_back(&net->twopin[i]);
+                    remove_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+
+
+  
+                    int boxSize = 10;
+                    int boxStep = 2;
+                    for(int sIter = 0; sIter < SingleNetMaxIter; ++sIter, boxSize+=boxStep){
+                        ISPDParser::TwoPin topTwopin = *(ptrTwopin);
+                        ISPDParser::Point s = topTwopin.from;
+                        ISPDParser::Point t = topTwopin.to;
+
+                        int x1 = std::min(s.x, t.x), x2 = std::max(s.x, t.x);
+                        int y1 = std::min(s.y, t.y), y2 = std::max(s.y, t.y);
+                        x1 = std::max(x1 - boxSize, 0);
+                        y1 = std::max(y1 - boxSize, 0);
+                        x2 = std::min(x2 + boxSize, ispdData->numXGrid - 1);
+                        y2 = std::min(y2 + boxSize, ispdData->numYGrid - 1);
+                        std::vector<std::vector<double>> suCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<double>> utCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<double>> suVertCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<double>> utVertCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<double>> suHoriCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<double>> utHoriCost(
+                            ispdData->numXGrid,
+                            std::vector<double>(ispdData->numYGrid, 0)
+                        );
+                        std::vector<std::vector<ISPDParser::Point>> suVert(
+                            ispdData->numXGrid,
+                            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                        );
+                        std::vector<std::vector<ISPDParser::Point>> utVert(
+                            ispdData->numXGrid,
+                            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                        );
+                        std::vector<std::vector<ISPDParser::Point>> suHori(
+                            ispdData->numXGrid,
+                            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                        );
+                        std::vector<std::vector<ISPDParser::Point>> utHori(
+                            ispdData->numXGrid,
+                            std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                        );
+                        // std::cout<<s.x<<","<<s.y<<"->"<<t.x<<","<<t.y<<" "<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
+                        // std::vector<std::vector<std::vector<ISPDParser::Point>>> s_u = unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori);
+                        // std::vector<std::vector<std::vector<ISPDParser::Point>>> u_t = unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori);
+                        unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori, suVertCost, suHoriCost, vertHistoryRipUp, horiHistoryRipUp);
+                        unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori, utVertCost, utHoriCost, vertHistoryRipUp, horiHistoryRipUp);
+                        
+
+
+                        
+                        
+                        /* select path from hori or vert */
+                        int minSUT = INT32_MAX;
+                        ISPDParser::Point minU(-1, -1);
+                        for(int x = x1; x <= x2; ++x){
+                            for(int y = y1; y <= y2; ++y){
+                                if(std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]) < minSUT){
+                                    minSUT = std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]);
+                                    minU = ISPDParser::Point(x, y);
+                                }
+                            }
+                        }
+
+                        std::vector<ISPDParser::Point> sutPath;
+                        int currX = minU.x, currY = minU.y;
+                        if(suHoriCost[minU.x][minU.y] < suVertCost[minU.x][minU.y]){
+                            while(suHori[currX][currY].x != currX || suHori[currX][currY].y != currY){
+                                sutPath.push_back(ISPDParser::Point(currX, currY));
+                                int t_x = currX, t_y = currY;
+                                currX = suHori[t_x][t_y].x;
+                                currY = suHori[t_x][t_y].y;
+                            }
+                        }
+                        else{
+                            while(suVert[currX][currY].x != currX || suVert[currX][currY].y != currY){
+                                sutPath.push_back(ISPDParser::Point(currX, currY));
+                                int t_x = currX, t_y = currY;
+                                currX = suVert[t_x][t_y].x;
+                                currY = suVert[t_x][t_y].y;
+                            }
+                        }
+
+
+
+                        sutPath.push_back(ISPDParser::Point(s.x, s.y));
+                        
+                        reverse(sutPath.begin(), sutPath.end());
+                        sutPath.pop_back();
+
+                        currX = minU.x;
+                        currY = minU.y;
+                        if(utHoriCost[minU.x][minU.y] < utVertCost[minU.x][minU.y]){
+                            while(utHori[currX][currY].x != currX || utHori[currX][currY].y != currY){
+                                sutPath.push_back(ISPDParser::Point(currX, currY));
+                                int t_x = currX, t_y = currY;
+                                currX = utHori[t_x][t_y].x;
+                                currY = utHori[t_x][t_y].y;
+                            }
+                        }
+                        else{
+                            while(utVert[currX][currY].x != currX || utVert[currX][currY].y != currY){
+                                sutPath.push_back(ISPDParser::Point(currX, currY));
+                                int t_x = currX, t_y = currY;
+                                currX = utVert[t_x][t_y].x;
+                                currY = utVert[t_x][t_y].y;
+                            }
+                        }
+                        sutPath.push_back(ISPDParser::Point(t.x, t.y));
+                        ptrTwopin->corr_path = sutPath;
+                        if(!isOF(ptrTwopin->parNet, sutPath, vertCap, horiCap, vertCurr, horiCurr)){break;}
+                    }
+
+
+                    fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                
+                    ++ofCount;
                 }
-            }
+            // }
         }
-        if(twopins.empty()){break;}
-        std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        if(ofCount == 0){break;}
+        // std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
         // for(auto& t: twopins){
         //     std::cout<<t->HPWL()<<std::endl;
         // }
-        std::cout<<"iter "<<it + 1<<" : "<<twopins.size()<<" overflow twopins"<<std::endl;
+        std::cout<<"iter "<<it + 1<<" : "<<ofCount<<" overflow twopins"<<std::endl;
 
 
 
 
     
-        // int count = 0;
-        // while (!twopinHeap.empty()) {
-        for (int i = 0; i < twopins.size(); ++i) {
-            // ++count;
-            // if(count%(twopins.size()/5) == 0){std::cout<<count<<" twopin\n";}
-            auto ptrTwopin = twopins[i];
 
-            int boxSize = 20;
-            int boxStep = 10;
-            for(int sIter = 0; sIter < SingleNetMaxIter; ++sIter, boxSize+=boxStep){
-                ISPDParser::TwoPin topTwopin = *(ptrTwopin);
-                ISPDParser::Point s = topTwopin.from;
-                ISPDParser::Point t = topTwopin.to;
-
-                int x1 = std::min(s.x, t.x), x2 = std::max(s.x, t.x);
-                int y1 = std::min(s.y, t.y), y2 = std::max(s.y, t.y);
-                x1 = std::max(x1 - boxSize, 0);
-                y1 = std::max(y1 - boxSize, 0);
-                x2 = std::min(x2 + boxSize, ispdData->numXGrid - 1);
-                y2 = std::min(y2 + boxSize, ispdData->numYGrid - 1);
-                std::vector<std::vector<double>> suCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<double>> utCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<double>> suVertCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<double>> utVertCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<double>> suHoriCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<double>> utHoriCost(
-                    ispdData->numXGrid,
-                    std::vector<double>(ispdData->numYGrid, 0)
-                );
-                std::vector<std::vector<ISPDParser::Point>> suVert(
-                    ispdData->numXGrid,
-                    std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-                );
-                std::vector<std::vector<ISPDParser::Point>> utVert(
-                    ispdData->numXGrid,
-                    std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-                );
-                std::vector<std::vector<ISPDParser::Point>> suHori(
-                    ispdData->numXGrid,
-                    std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-                );
-                std::vector<std::vector<ISPDParser::Point>> utHori(
-                    ispdData->numXGrid,
-                    std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
-                );
-                // std::cout<<s.x<<","<<s.y<<"->"<<t.x<<","<<t.y<<" "<<x1<<" "<<y1<<" "<<x2<<" "<<y2<<std::endl;
-                // std::vector<std::vector<std::vector<ISPDParser::Point>>> s_u = unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori);
-                // std::vector<std::vector<std::vector<ISPDParser::Point>>> u_t = unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori);
-                unilateral_mono_route(x1, y1, x2, y2, s, suCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, suVert, suHori, suVertCost, suHoriCost, vertHistoryRipUp, horiHistoryRipUp);
-                unilateral_mono_route(x1, y1, x2, y2, t, utCost, topTwopin.parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, utVert, utHori, utVertCost, utHoriCost, vertHistoryRipUp, horiHistoryRipUp);
-                
-
-
-                
-                
-                /* select path from hori or vert */
-                int minSUT = INT32_MAX;
-                ISPDParser::Point minU(-1, -1);
-                for(int x = x1; x <= x2; ++x){
-                    for(int y = y1; y <= y2; ++y){
-                        if(std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]) < minSUT){
-                            minSUT = std::min(suHoriCost[x][y], suVertCost[x][y]) + std::min(utHoriCost[x][y], utVertCost[x][y]);
-                            minU = ISPDParser::Point(x, y);
-                        }
-                    }
-                }
-
-                std::vector<ISPDParser::Point> sutPath;
-                int currX = minU.x, currY = minU.y;
-                if(suHoriCost[minU.x][minU.y] < suVertCost[minU.x][minU.y]){
-                    while(suHori[currX][currY].x != currX || suHori[currX][currY].y != currY){
-                        sutPath.push_back(ISPDParser::Point(currX, currY));
-                        int t_x = currX, t_y = currY;
-                        currX = suHori[t_x][t_y].x;
-                        currY = suHori[t_x][t_y].y;
-                    }
-                }
-                else{
-                    while(suVert[currX][currY].x != currX || suVert[currX][currY].y != currY){
-                        sutPath.push_back(ISPDParser::Point(currX, currY));
-                        int t_x = currX, t_y = currY;
-                        currX = suVert[t_x][t_y].x;
-                        currY = suVert[t_x][t_y].y;
-                    }
-                }
-
-
-
-                sutPath.push_back(ISPDParser::Point(s.x, s.y));
-                
-                reverse(sutPath.begin(), sutPath.end());
-                sutPath.pop_back();
-
-                currX = minU.x;
-                currY = minU.y;
-                if(utHoriCost[minU.x][minU.y] < utVertCost[minU.x][minU.y]){
-                    while(utHori[currX][currY].x != currX || utHori[currX][currY].y != currY){
-                        sutPath.push_back(ISPDParser::Point(currX, currY));
-                        int t_x = currX, t_y = currY;
-                        currX = utHori[t_x][t_y].x;
-                        currY = utHori[t_x][t_y].y;
-                    }
-                }
-                else{
-                    while(utVert[currX][currY].x != currX || utVert[currX][currY].y != currY){
-                        sutPath.push_back(ISPDParser::Point(currX, currY));
-                        int t_x = currX, t_y = currY;
-                        currX = utVert[t_x][t_y].x;
-                        currY = utVert[t_x][t_y].y;
-                    }
-                }
-                sutPath.push_back(ISPDParser::Point(t.x, t.y));
-                ptrTwopin->corr_path = sutPath;
-                if(!isOF(ptrTwopin->parNet, sutPath, vertCap, horiCap, vertCurr, horiCurr)){break;}
+        /* construct RPoint path in each twopin*/
+        for(auto& net: ispdData->nets){
+            for(auto& pinpair: net->twopin){
+                pinpair.create_path();
             }
+        }
+        LayerAssignment::Graph graph;
+        graph.initialLA(*ispdData, 1);
+        graph.convertGRtoLA(*ispdData, true);
+        graph.COLA(true);
 
+        // Output result
+        // graph.output3Dresult("3ds1.txt");
+    }
+    
+    /* Maze route */
+    int MazeIter = 1;
+    for(int it = 0; it < MazeIter; ++it){
+        // twopins.clear();
+        vertHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid, std::vector<int>(ispdData->numYGrid - 1, 0));
+        horiHistoryRipUp =  std::vector<std::vector<int>> (ispdData->numXGrid - 1, std::vector<int>(ispdData->numYGrid, 0));
+        int ofCount = 0;
+        for(auto&ptrTwopin: twopins){
+        // for(auto& net: ispdData->nets){
+        //     for(int i = 0; i < net->twopin.size(); ++i){
+            if(isOF(ptrTwopin->parNet, ptrTwopin->corr_path, vertCap, horiCap, vertCurr, horiCurr)){
+                // twopins.push_back(&net->twopin[i]);
+                remove_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                // fill_cap(net->twopin[i].parNet, net->twopin[i].corr_path, ispdData->minimumSpacing[0], vertHistoryRipUp, horiHistoryRipUp);
+            
+                std::vector<std::vector<ISPDParser::Point>> pMap(
+                    ispdData->numXGrid,
+                    std::vector<ISPDParser::Point>(ispdData->numYGrid, ISPDParser::Point(-1, -1))
+                ); 
+                ptrTwopin->corr_path = maze_route(ptrTwopin->from, ptrTwopin->to, ptrTwopin->parNet->minimumWidth, ispdData->minimumSpacing[0], vertCap, horiCap, vertCurr, horiCurr, pMap, vertHistoryRipUp, horiHistoryRipUp);   
+                fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+                
+                ++ofCount;
+            }
+            // }
+        }
+        std::cout<<"Maze route iter "<<it + 1<<" : "<<ofCount<<" overflow twopins"<<std::endl;
+        if(ofCount == 0){break;}
+        // std::sort(twopins.begin(), twopins.end(), compareTwoPinHPWL);
+        for(auto& ptrTwopin: twopins){
 
-            fill_cap(ptrTwopin->parNet, ptrTwopin->corr_path, ispdData->minimumSpacing[0], vertCurr, horiCurr);
+            
         }
         /* construct RPoint path in each twopin*/
         for(auto& net: ispdData->nets){
@@ -1057,7 +1191,6 @@ int main(int argc, char **argv) {
         // Output result
         graph.output3Dresult("3ds1.txt");
     }
-    
 
     // /* construct RPoint path in each twopin*/
     // for(auto& net: ispdData->nets){
